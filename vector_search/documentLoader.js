@@ -54,6 +54,10 @@ class DocumentLoader  {
         }
     }
     
+    /*
+     * This is to clear the embeddings from the vector search collection.  
+    *  Probably would have beem faster to just delete the collection, but this works.
+     */
     async clearEmbeddings(){
         const mongoDB = this.env.MONGODB_DB;
         const cluster = this.env.MONGODB_URI;
@@ -93,7 +97,6 @@ class DocumentLoader  {
           });
     
 
-
         try {
             this._logWithTimestamp("Connect to " + cluster);
             await client.connect();
@@ -108,6 +111,7 @@ class DocumentLoader  {
                 embeddingKey: this.env.MONGODB_EMBEDDING_FIELD, // Field name for the vector embeddings. Defaults to "embedding".
             };
             // trying to find the params that will work with NVIDIA
+            // had to set a small batch size to make it work
             const embeddings = new OpenAIEmbeddings({
                 model: this.env.EMBEDDING_MODEL,
                 batchSize: 50,
@@ -115,7 +119,6 @@ class DocumentLoader  {
               });            
             // Instantiate Atlas as a vector store 
             const vectorSearch = new MongoDBAtlasVectorSearch(embeddings, dbConfig );
-            this._logWithTimestamp("add documents - " + docs.length);
             // Log the number of documents to be processed
             this._logWithTimestamp(`Adding ${docs.length} documents to vector store`);
             
@@ -123,9 +126,10 @@ class DocumentLoader  {
             const options = {
                 // Map document IDs directly using array method instead of loop
                 ids: docs.map(doc => doc.id)
-                //ids: docs.map(doc => doc.id);
             };
+            // the heavy lifting; store the details in MongoDB Atlas Vector Search
             await vectorSearch.addDocuments(docs, options);
+            // create the vector search index
             await this.createVectorIndexLangChain(vectorStore);
 
         } catch (e) {
@@ -138,51 +142,7 @@ class DocumentLoader  {
 
     }
     
-    /*
-    async createVectorSearchEmbeddings2() {
-        this._logWithTimestamp("Creating Vector Search Embeddings");
-        const mongoDB = this.env.MONGODB_DB;
-        const cluster = this.env.MONGODB_URI;
-        var client = new MongoClient(cluster);
-
-        const openai = new OpenAI({
-            apiKey:  this.env.OPENAI_API_KEY,
-            baseURL: this.env.OPENAI_BASE_URL,
-          });
-    
-        const dbConfig = {  
-            collection: this.env.MONGODB_COLL,
-            indexName: this.env.MONGODB_VECTOR_INDEX, // The name of the Atlas search index to use.
-            textKey: "text", // Field name for the raw text content. Defaults to "text".
-            embeddingKey: this.env.MONGODB_EMBEDDING_FIELD, // Field name for the vector embeddings. Defaults to "embedding".
-        };
-
-        try {
-            this._logWithTimestamp("Connect to " + cluster);
-            await client.connect();
-            const db = client.db(mongoDB);
-            var docs = await this.getDocuments(db);
-            const movies = db.collection(this.env.MONGODB_COLL);
-            // Instantiate Atlas as a vector store 
-            //KLW - CANNOT use MongoDBAtlasVectorSearch with NVIDIA because we need to specify the "model"
-            // const vectorStore = await MongoDBAtlasVectorSearch.fromDocuments(docs, new OpenAIEmbeddings(), dbConfig);
-            for (const idx in docs)
-            {
-                const doc = docs[idx];
-                this._logWithTimestamp(doc);
-                var emb = await this.generateEmbedding(openai, doc.title + "\n" + doc.plot);
-                this._logWithTimestamp("Embedding:\n"+emb[0]);
-            }
-        } catch (e) {
-            console.error(e);
-        }
-        finally {
-            await client.close();
-            this._logWithTimestamp("DONE!\n");
-        }
-
-    }
-   */
+   
     /*
      * genereates the embedding for the provided text, aka, creates the floats
     async generateEmbedding(openAI, text) {
